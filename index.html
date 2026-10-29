@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Caderneta">
+<meta name="theme-color" content="#2b50e0">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Caderneta de Sala</title>
+<style>
+:root{--bg:#f2f5f9;--card:#fff;--ink:#101828;--mut:#667085;--line:#dde3ec;--pri:#2b50e0;--ok:#1f8a5b;--bad:#c2410c}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1420;--card:#18202f;--ink:#eef2f8;--mut:#9aa6ba;--line:#2a3447;--pri:#6c8cff;--ok:#3ec68a;--bad:#ff8a5c}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:max(10px,env(safe-area-inset-top)) 14px 8px;border-bottom:1px solid var(--line)}
+header select{width:100%;font-weight:700;font-size:18px}
+main{padding:12px 14px calc(84px + env(safe-area-inset-bottom));max-width:640px;margin:auto}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;color:var(--mut);padding:14px 2px;font-size:13px;font-weight:600}
+nav button.on{color:var(--pri);box-shadow:inset 0 3px var(--pri)}
+h2{font-size:15px;margin:18px 0 8px;color:var(--mut)}
+input,select,textarea,button{font:inherit;color:inherit;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 12px;min-height:44px}
+textarea{width:100%;margin-bottom:8px}
+input,select{min-width:0}
+.row{display:flex;gap:8px;margin:6px 0}.row>input,.row>select{flex:1}
+button{font-weight:600}
+.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+.danger{color:var(--bad)}
+ul{list-style:none;margin:8px 0;padding:0;background:var(--card);border:1px solid var(--line);border-radius:12px}
+li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);min-height:50px}
+li:last-child{border:0}
+li>button{min-width:96px}
+.st.P{background:var(--ok);border-color:var(--ok);color:#fff}
+.st.F{background:var(--bad);border-color:var(--bad);color:#fff}
+.x{min-width:44px!important;border:0;color:var(--mut);font-size:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin:10px 0}
+.mem{display:flex;gap:8px;align-items:center;margin-top:6px}.mem span{flex:1}.mem input{flex:1}
+.empty,.sum{color:var(--mut)}
+#clk{font-size:25vw;font-weight:800;text-align:center;font-variant-numeric:tabular-nums;margin:24px 0}
+#clk.warn{color:var(--bad)}
+dialog{width:min(92vw,480px);border:0;border-radius:16px;background:var(--card);color:var(--ink);padding:16px}
+dialog::backdrop{background:#0008}
+dialog label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0}
+dialog input{width:90px;text-align:right}
+</style>
+</head>
+<body>
+<header><select id="ts" aria-label="Turma"></select></header>
+<main id="v"></main>
+<nav id="nav"></nav>
+<dialog id="dg"></dialog>
+<script>
+const $=s=>document.querySelector(s);
+let db;try{db=JSON.parse(localStorage.getItem('cs')||'null')}catch(e){}
+db=db||{t:[],sel:null,tab:'turmas'};
+const save=()=>{try{localStorage.setItem('cs',JSON.stringify(db))}catch(e){}};
+const uid=()=>Math.random().toString(36).slice(2,9);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cur=()=>db.t.find(x=>x.id===db.sel);
+const hoje=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const RUB=[['Domínio do conteúdo',2],['Clareza da explicação',1.5],['Questões no estilo ENEM',2],['Participação do grupo',1.5],['Recursos usados',1],['Gestão do tempo',1],['Interação com a turma',1]];
+const STAT=['Não iniciado','Preparando','Pronto'];
+const TABS=[['turmas','Turmas'],['chamada','Chamada'],['grupos','Grupos'],['notas','Notas'],['tempo','Tempo']];
+const rub=t=>t.r||(t.r=RUB.map(([n,m])=>({n,m})));
+const tot=(t,a)=>rub(t).reduce((s,c)=>s+(+((t.n||{})[a.id]||{})[c.n]||0),0);
+const maxT=t=>rub(t).reduce((s,c)=>s+c.m,0);
+const fmt=n=>(Math.round(n*100)/100).toString().replace('.',',');
+const none='<p class="empty">Crie uma turma na aba Turmas para começar.</p>';
+let tm={left:2400,end:0,iv:null};
+
+const views={
+turmas:t=>`<h2>Nova turma</h2><div class="row"><input id="nt" placeholder="Ex.: 3º A"><button class="pri" data-act="addT">Criar</button></div>`+(t?`<h2>${esc(t.nome)} · ${t.alunos.length} estudantes</h2><textarea id="na" rows="4" placeholder="Cole os nomes, um por linha"></textarea><button class="pri" data-act="addA">Adicionar estudantes</button><ul>${t.alunos.map(a=>`<li><span>${esc(a.nome)}</span><button class="x" aria-label="Remover" data-act="delA" data-id="${a.id}">×</button></li>`).join('')}</ul><div class="row"><button data-act="csv">Exportar planilha</button><button class="danger" data-act="delT">Excluir turma</button></div>`:''),
+chamada:t=>{if(!t)return none;const d=db.data||hoje(),m=(t.ch||{})[d]||{},v=Object.values(m);
+return `<div class="row"><input type="date" id="dt" value="${d}"></div><p class="sum">Presentes: ${v.filter(x=>x=='P').length} · Faltas: ${v.filter(x=>x=='F').length}</p><ul>${t.alunos.map(a=>`<li><span>${esc(a.nome)}</span><button class="st ${m[a.id]||''}" data-act="pf" data-id="${a.id}">${{P:'Presente',F:'Falta'}[m[a.id]]||'—'}</button></li>`).join('')}</ul><button data-act="allP">Marcar todos presentes</button>`},
+grupos:t=>{if(!t)return none;const g=t.g||[];
+return `<div class="row"><input id="ng" type="number" min="2" max="10" value="${g.length||4}" aria-label="Número de grupos"><button class="pri" data-act="sort">Sortear grupos</button></div>`+g.map((x,i)=>`<section class="card"><div class="row"><input data-f="gt" data-i="${i}" value="${esc(x.tema)}" placeholder="Tema do Grupo ${i+1}"><select data-f="gs" data-i="${i}">${STAT.map((s,k)=>`<option value="${k}"${x.st==k?' selected':''}>${s}</option>`).join('')}</select></div>${x.m.map(m=>`<div class="mem"><span>${esc(t.alunos.find(a=>a.id==m.id)?.nome||'?')}</span><input data-f="gp" data-i="${i}" data-id="${m.id}" value="${esc(m.p)}" placeholder="Parte"></div>`).join('')}</section>`).join('')},
+notas:t=>{if(!t)return none;
+return `<div class="row"><button data-act="rub">Editar rubrica (${fmt(maxT(t))} pts)</button></div><ul>${t.alunos.map(a=>`<li><span>${esc(a.nome)}</span><button data-act="nota" data-id="${a.id}">${fmt(tot(t,a))} / ${fmt(maxT(t))}</button></li>`).join('')}</ul>`},
+tempo:()=>`<h2>Tempo de apresentação</h2><div class="row"><input id="mn" type="number" min="1" value="${Math.round(tm.left/60)||40}" aria-label="Minutos"><button data-act="zero">Definir minutos</button></div><div id="clk"></div><div class="row"><button class="pri" data-act="go">${tm.iv?'Pausar':'Iniciar'}</button></div>`
+};
+function render(){
+  $('#ts').innerHTML=db.t.map(t=>`<option value="${t.id}"${t.id==db.sel?' selected':''}>${esc(t.nome)}</option>`).join('')||'<option>Sem turma</option>';
+  $('#nav').innerHTML=TABS.map(([k,l])=>`<button data-tab="${k}" class="${db.tab==k?'on':''}">${l}</button>`).join('');
+  $('#v').innerHTML=views[db.tab](cur());clk();
+}
+function clk(){const e=$('#clk');if(!e)return;const m=Math.floor(tm.left/60),s=tm.left%60;e.textContent=m+':'+String(s).padStart(2,'0');e.className=tm.left<=300?'warn':''}
+function tick(){tm.left=Math.max(0,Math.round((tm.end-Date.now())/1000));clk();if(!tm.left){clearInterval(tm.iv);tm.iv=null;navigator.vibrate&&navigator.vibrate([300,100,300]);render()}}
+function csv(t){
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"',r=rub(t),days=Object.keys(t.ch||{});
+  const rows=[['Estudante','Presenças','Faltas',...r.map(c=>c.n+' (máx '+c.m+')'),'Total']];
+  t.alunos.forEach(a=>{const v=days.map(d=>t.ch[d][a.id]);rows.push([a.nome,v.filter(x=>x=='P').length,v.filter(x=>x=='F').length,...r.map(c=>((t.n||{})[a.id]||{})[c.n]||0),tot(t,a)])});
+  const txt='\ufeff'+rows.map(x=>x.map(q).join(';')).join('\n'),f=new File([txt],t.nome+'.csv',{type:'text/csv'});
+  if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f]}).catch(()=>{});
+  else{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;a.click()}
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;const t=cur(),id=b.dataset.id;
+  if(b.dataset.tab){db.tab=b.dataset.tab;save();return render()}
+  switch(b.dataset.act){
+  case'addT':{const n=$('#nt').value.trim();if(!n)return;const x={id:uid(),nome:n,alunos:[]};db.t.push(x);db.sel=x.id;break}
+  case'addA':$('#na').value.split('\n').map(s=>s.trim()).filter(Boolean).forEach(n=>t.alunos.push({id:uid(),nome:n}));break;
+  case'delA':t.alunos=t.alunos.filter(a=>a.id!=id);break;
+  case'delT':if(!confirm('Excluir a turma '+t.nome+' e todos os dados dela?'))return;db.t=db.t.filter(x=>x!=t);db.sel=db.t[0]?.id||null;break;
+  case'csv':return csv(t);
+  case'pf':{db.data=db.data||hoje();const m=(t.ch=t.ch||{})[db.data]=t.ch[db.data]||{};const nx={'':'P',P:'F',F:''}[m[id]||''];nx?m[id]=nx:delete m[id];break}
+  case'allP':{db.data=db.data||hoje();t.ch=t.ch||{};t.ch[db.data]={};t.alunos.forEach(a=>t.ch[db.data][a.id]='P');break}
+  case'sort':{const n=Math.max(2,Math.min(10,+$('#ng').value||4)),old=t.g||[],g=[...Array(n)].map((_,i)=>({tema:old[i]?.tema||'',st:0,m:[]}));
+    const s=[...t.alunos];for(let i=s.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[s[i],s[j]]=[s[j],s[i]]}
+    s.forEach((a,i)=>g[i%n].m.push({id:a.id,p:''}));t.g=g;break}
+  case'rub':{const x=prompt('Um critério por linha, no formato Nome;máximo',rub(t).map(c=>c.n+';'+c.m).join('\n'));if(x==null)return;
+    const r=x.split('\n').map(l=>l.split(';')).filter(l=>l[0].trim()).map(l=>({n:l[0].trim(),m:parseFloat((l[1]||'1').replace(',','.'))||1}));if(r.length)t.r=r;break}
+  case'nota':{const d=$('#dg'),a=t.alunos.find(a=>a.id==id);d.innerHTML=`<h3>${esc(a.nome)}</h3>`+rub(t).map((c,i)=>`<label>${esc(c.n)} (máx ${fmt(c.m)})<input type="number" inputmode="decimal" step="0.25" min="0" max="${c.m}" data-f="nt" data-id="${id}" data-c="${i}" value="${((t.n||{})[id]||{})[c.n]||''}"></label>`).join('')+'<button class="pri" data-act="fechar" style="width:100%;margin-top:10px">Concluir</button>';d.showModal();return}
+  case'fechar':$('#dg').close();break;
+  case'zero':tm.left=Math.max(1,+$('#mn').value||40)*60;clearInterval(tm.iv);tm.iv=null;break;
+  case'go':if(tm.iv){clearInterval(tm.iv);tm.iv=null}else if(tm.left){tm.end=Date.now()+tm.left*1000;tm.iv=setInterval(tick,500)}break;
+  default:return}
+  save();render();
+});
+document.addEventListener('change',e=>{
+  const i=e.target,t=cur(),f=i.dataset.f;
+  if(i.id=='ts'){db.sel=i.value;save();return render()}
+  if(i.id=='dt'){db.data=i.value||hoje();save();return render()}
+  if(!f||!t)return;
+  if(f=='gt')t.g[i.dataset.i].tema=i.value;
+  if(f=='gs')t.g[i.dataset.i].st=+i.value;
+  if(f=='gp')t.g[i.dataset.i].m.find(m=>m.id==i.dataset.id).p=i.value;
+  if(f=='nt'){const c=rub(t)[i.dataset.c],v=Math.min(c.m,Math.max(0,parseFloat(i.value.replace(',','.'))||0));((t.n=t.n||{})[i.dataset.id]=t.n[i.dataset.id]||{})[c.n]=v;i.value=v||''}
+  save();if(f!='nt')return;$('#v').innerHTML=views[db.tab](t);
+});
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+render();
+</script>
+</body>
+</html>
